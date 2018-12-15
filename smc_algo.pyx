@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.integrate as integrate
-from scipy.stats import gamma, ncx2
+from scipy.stats import gamma, ncx2, norm
 import logging
 
 
@@ -44,9 +44,27 @@ def get_b_c(observed_y, coef_A, coef_B, h=1e-3):
 cdef double phi(double x, double a, double b, double c, double h, int N):
     return 1 / np.power(2 * np.pi * h, N / 2.0) * np.exp(-a*np.square(x) - b * x - c)
 
+# cdef double get_K(double a, double b, double c, double h, int N):
+#     """
+#     numerical integration method(slow)
+#     """
+#     result = integrate.quad(lambda x: phi(x, a, b, c, h, N), 0, float("inf"))
+#     return result[0]
+
 cdef double get_K(double a, double b, double c, double h, int N):
-    result = integrate.quad(lambda x: phi(x, a, b, c, h, N), 0, float("inf"))
-    return result[0]
+    """
+    for numerical stability, first compute logK then take exponential
+    :param a: 
+    :param b: 
+    :param c: 
+    :param h: 
+    :param N: 
+    :return: 
+    """
+    logK = -(N-1) / 2. * np.log(2*np.pi) - N / 2. * np.log(h) + (b*b / (4*a) - c) - 0.5*np.log(2*a)
+    logK += np.log(1-norm.cdf(0, loc=-b/(2*a), scale=np.sqrt(1/(2*a))))
+    return np.exp(logK)
+
 
 def resample(alpha, w):
     cdf = np.cumsum(w) / np.sum(w)
@@ -71,7 +89,7 @@ cdef double get_n_tilda(double[:] w):
 def likelihood_estimate_by_partical_filter(double[:] param_vector, int num_particles, double delta_t,
                                         double[:, :]observed_y_matrix, time_to_maturity_array, double h):
     """
-    observed_y_matrix: T by N matrix
+    observed_y_matrix: T by N matrix, T is number of steps and N is number of maturities
     return the loglikelihood
     """
     cdef int T, N
@@ -86,7 +104,7 @@ def likelihood_estimate_by_partical_filter(double[:] param_vector, int num_parti
     a = get_a(coef_B, h)
     # initial alpha and w
     b, c = get_b_c(observed_y_matrix[0], coef_A, coef_B, h)
-    alpha = generate_truncated_normal(mean=-b/(2*a), std=np.sqrt(1/(2*a)), n=N)
+    alpha = generate_truncated_normal(mean=-b/(2*a), std=np.sqrt(1/(2*a)), n=num_particles)
     # alpha_1 follows gamma distribution
     shape_param = const_q+1
     scale_param = 1 / (const_c * (1 - np.exp(-param_vector[0]*delta_t)))
@@ -96,14 +114,15 @@ def likelihood_estimate_by_partical_filter(double[:] param_vector, int num_parti
     cdef Py_ssize_t t
     for t in range(1, T):
         b, c = get_b_c(observed_y_matrix[t], coef_A, coef_B, h)
-        new_alpha = generate_truncated_normal(mean=-b/(2*a), std=np.sqrt(1/(2*a)), n=N)
+        new_alpha = generate_truncated_normal(mean=-b/(2*a), std=np.sqrt(1/(2*a)), n=num_particles)
         # alpha_t conditioning on alpha_{t-1} follows non-central X2 distribution.
         nc = 2 * const_c * np.exp(-param_vector[0]*delta_t) * alpha
         K = get_K(a, b, c, h, N)
-        conditional_prob = 2*const_c*ncx2.pdf(2*const_c*new_alpha, 2*const_q+2, nc)
+        conditional_prob = 2 * const_c * ncx2.pdf(2*const_c*new_alpha, 2*const_q+2, nc)
         new_w = K * conditional_prob * w / np.sum(w)
         n_tilda = get_n_tilda(new_w)
         if n_tilda < num_particles / 2.:
+            #resampling
             new_alpha = resample(new_alpha, new_w)
             new_w = np.ones_like(new_w) * np.sum(new_w) / num_particles
         log_likelihood += np.log(np.sum(new_w))
@@ -112,6 +131,16 @@ def likelihood_estimate_by_partical_filter(double[:] param_vector, int num_parti
     return log_likelihood
 
 def simulate_path(param_vector, delta_t, T, time_to_maturity_array, h=1e-3):
+    """
+
+    :param param_vector:
+    :param delta_t:
+    :param T:
+    :param time_to_maturity_array:
+    :param h:
+    :return:
+        observed_y: (T, num_maturities)
+    """
     observed_y = np.ones((T, time_to_maturity_array.size), dtype=np.float64)
 
     const_c = get_const_c(param_vector, delta_t)
@@ -125,3 +154,25 @@ def simulate_path(param_vector, delta_t, T, time_to_maturity_array, h=1e-3):
         alpha = np.random.noncentral_chisquare(df=2*const_q+2, nonc=nc) / (2 * const_c)
         observed_y[ii] = -coef_A + coef_B * alpha + np.random.normal(0, h, size=time_to_maturity_array.size)
     return observed_y
+
+
+def check_param_vector(vector):
+    # for numerical stability, return false for out of bound param vectors
+    if vector[0] < 0.1 or vector[0] > 0.5:
+        return False
+    if vector[1] < 0.01 or vector[1] > 0.1:
+        return False
+    if vector[2] < 0.02 or vector[2] > 0.08:
+        return False
+    if np.abs(vector[3]) > 50:
+        return False
+    return True
+
+def get_ll(vector, double[:, :, :] y_observation, int y_size, maturity_vector):
+    if not check_param_vector(vector):
+        return -float("inf")
+    cdef double sum = 0
+    cdef int i
+    for i in range(y_size):
+        sum += likelihood_estimate_by_partical_filter(vector, 200, 1. / 52, y_observation[i], maturity_vector, 1e-3)
+    return sum / y_size
