@@ -118,13 +118,16 @@ def likelihood_estimate_by_partical_filter(double[:] param_vector, int num_parti
         # alpha_t conditioning on alpha_{t-1} follows non-central X2 distribution.
         nc = 2 * const_c * np.exp(-param_vector[0]*delta_t) * alpha
         K = get_K(a, b, c, h, N)
-        conditional_prob = 2 * const_c * ncx2.pdf(2*const_c*new_alpha, 2*const_q+2, nc)
+        conditional_prob = 2 * const_c * ncx2.pdf(x=2*const_c*new_alpha, df=2*const_q+2, nc=nc)
+        assert len(conditional_prob) == num_particles
         new_w = K * conditional_prob * w / np.sum(w)
+        assert len(new_w) == num_particles
         n_tilda = get_n_tilda(new_w)
         if n_tilda < num_particles / 2.:
             #resampling
             new_alpha = resample(new_alpha, new_w)
             new_w = np.ones_like(new_w) * np.sum(new_w) / num_particles
+        assert len(new_alpha) == num_particles
         log_likelihood += np.log(np.sum(new_w))
         w = new_w
         alpha = new_alpha
@@ -147,12 +150,12 @@ def simulate_path(param_vector, delta_t, T, time_to_maturity_array, h=1e-3):
     const_q = get_const_q(param_vector)
     alpha = np.random.gamma(shape=const_q+1, scale=1/(const_c * (1 - np.exp(-param_vector[0]*delta_t))))
     coef_A, coef_B = get_coef(time_to_maturity_array, param_vector)
-    observed_y[0] = -coef_A + coef_B * alpha + np.random.normal(0, h, size=time_to_maturity_array.size)
+    observed_y[0] = -coef_A + coef_B * alpha + np.random.normal(0, np.sqrt(h), size=time_to_maturity_array.size)
     cdef Py_ssize_t ii
     for ii in range(1, T):
         nc = 2 * const_c * np.exp(-param_vector[0]*delta_t) * alpha
         alpha = np.random.noncentral_chisquare(df=2*const_q+2, nonc=nc) / (2 * const_c)
-        observed_y[ii] = -coef_A + coef_B * alpha + np.random.normal(0, h, size=time_to_maturity_array.size)
+        observed_y[ii] = -coef_A + coef_B * alpha + np.random.normal(0, np.sqrt(h), size=time_to_maturity_array.size)
     return observed_y
 
 
