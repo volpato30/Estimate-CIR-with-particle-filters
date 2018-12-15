@@ -38,7 +38,7 @@ def generate_truncated_normal(mean, std, n, clip=0):
 cdef double get_a(double[:] coef_B, double h):
     return np.sum(np.square(coef_B)) / (2 * h)
 
-def get_b_c(observed_y, coef_A, coef_B, h=1e-3):
+def get_b_c(observed_y, coef_A, coef_B, h):
     return -np.sum((observed_y - coef_A) * coef_B) / h, 1 / (2*h) *np.sum(np.square(observed_y - coef_A))
 
 cdef double phi(double x, double a, double b, double c, double h, int N):
@@ -67,6 +67,7 @@ cdef double get_K(double a, double b, double c, double h, int N):
 
 
 def resample(alpha, w):
+    assert len(alpha) == len(w)
     cdf = np.cumsum(w) / np.sum(w)
     cdf_hat = np.ones_like(w) * 1. / len(w)
     cdf_hat[0] = 0
@@ -133,7 +134,7 @@ def likelihood_estimate_by_partical_filter(double[:] param_vector, int num_parti
         alpha = new_alpha
     return log_likelihood
 
-def simulate_path(param_vector, delta_t, T, time_to_maturity_array, h=1e-3):
+def simulate_path(param_vector, delta_t, T, time_to_maturity_array, h):
     """
 
     :param param_vector:
@@ -171,11 +172,11 @@ def check_param_vector(vector):
         return False
     return True
 
-def get_ll(vector, double[:, :, :] y_observation, int y_size, maturity_vector):
+def get_ll(vector, double[:, :, :] y_observation, int y_size, maturity_vector, h):
     if not check_param_vector(vector):
         return -float("inf")
     cdef double sum = 0
     cdef int i
     for i in range(y_size):
-        sum += likelihood_estimate_by_partical_filter(vector, 200, 1. / 52, y_observation[i], maturity_vector, 1e-3)
+        sum += likelihood_estimate_by_partical_filter(vector, 200, 1. / 52, y_observation[i], maturity_vector, h)
     return sum / y_size

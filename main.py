@@ -10,9 +10,9 @@ def print_fun(x, f, accepted):
     print(f"at x: {x}, get {f}. accepted: {accepted}")
 
 
-def _target_function(search_vector, y_observation, y_size, maturity_vector):
+def _target_function(search_vector, y_observation, y_size, maturity_vector, h):
     full_vector = np.concatenate((search_vector, np.array([0.0481, -32.03])))
-    return -get_ll(full_vector, y_observation, y_size, maturity_vector)
+    return -get_ll(full_vector, y_observation, y_size, maturity_vector, h)
 
 
 if __name__ == '__main__':
@@ -22,7 +22,8 @@ if __name__ == '__main__':
     param_vector = np.array([0.1862, 0.0654, 0.0481, -32.03])
     # fake_vector = np.array([0.3, 0.0654, 0.0481, -32.03])
     maturity_vector = np.array([0.25, 1, 3, 5, 10])
-    h=1e-3
+    # h is the variance of measurement error for bonds' interest rate. It should be smaller than 1e-4
+    h=1e-5
     # generate observations
     for ii in range(num_rep):
         y_list = []
@@ -33,7 +34,7 @@ if __name__ == '__main__':
         start_time = time.time()
         # optimization target
         target_function = partial(_target_function, y_observation=y_observation, y_size=y_size,
-                                  maturity_vector=maturity_vector)
+                                  maturity_vector=maturity_vector, h=h)
         print(target_function(np.array([0.1862, 0.0654])))
         kappa_bound = [(0.15, 0.3), (0.03, 0.08)]
         result = differential_evolution(target_function, kappa_bound, maxiter=2, disp=True)
