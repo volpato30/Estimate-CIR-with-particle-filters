@@ -37,7 +37,7 @@ if __name__ == '__main__':
                                   maturity_vector=maturity_vector, h=h)
         print(target_function(np.array([0.1862, 0.0654])))
         kappa_bound = [(0.15, 0.3), (0.03, 0.08)]
-        result = differential_evolution(target_function, kappa_bound, maxiter=2, disp=True)
+        result = differential_evolution(target_function, kappa_bound, maxiter=20, disp=True)
         print(result.x, result.fun)
         search_x_result.append(result.x)
     with open("result.pkl", 'wb') as f:
